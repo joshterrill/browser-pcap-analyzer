@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Browser PCAP Analyzer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div>
+        <h1>Browser PCAP Analyzer</h1>
+      </div>
+    </div>
+    <div class="header-actions">
+      <label class="button primary">
+        Open File
+        <input id="fileInput" type="file" accept=".pcap,.pcapng,application/vnd.tcpdump.pcap,application/octet-stream">
+      </label>
+      <button id="exportCsv" class="button" type="button" disabled>Export CSV</button>
+      <button id="clearCapture" class="button ghost" type="button" disabled>Clear</button>
+      <button id="themeToggle" class="icon-button" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">
+        <span class="theme-icon" aria-hidden="true"></span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <div id="status" class="status-line" role="status">No capture loaded</div>
+
+    <section id="workspace" class="workspace is-hidden" aria-live="polite">
+      <section class="stats-grid" aria-label="Capture summary">
+        <div class="stat">
+          <span class="stat-label">Packets</span>
+          <strong id="statPackets">0</strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Bytes</span>
+          <strong id="statBytes">0</strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Duration</span>
+          <strong id="statDuration">0 ms</strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Protocols</span>
+          <strong id="statProtocols">0</strong>
+        </div>
+        <div class="stat wide">
+          <span class="stat-label">Capture</span>
+          <strong id="statName">-</strong>
+        </div>
+      </section>
+
+      <nav class="tabs" aria-label="Analyzer views">
+        <button class="tab is-active" type="button" data-tab="overview">Overview</button>
+        <button class="tab" type="button" data-tab="packets">Packets</button>
+        <button class="tab" type="button" data-tab="conversations">Conversations</button>
+        <button class="tab" type="button" data-tab="endpoints">Endpoints</button>
+        <button class="tab" type="button" data-tab="artifacts">Artifacts</button>
+      </nav>
+
+      <section id="overviewPanel" class="tab-panel">
+        <div class="overview-grid">
+          <section class="analysis-block">
+            <div class="block-heading">
+              <h2>Protocol Mix</h2>
+              <span id="protocolCountLabel">0 protocols</span>
+            </div>
+            <canvas id="protocolChart" height="230"></canvas>
+          </section>
+          <section class="analysis-block">
+            <div class="block-heading">
+              <h2>Traffic Timeline</h2>
+              <span id="timelineLabel">-</span>
+            </div>
+            <canvas id="timelineChart" height="230"></canvas>
+          </section>
+          <section class="analysis-block">
+            <div class="block-heading">
+              <h2>Top Endpoints</h2>
+              <span>by bytes</span>
+            </div>
+            <div id="topTalkers" class="rank-list"></div>
+          </section>
+          <section class="analysis-block">
+            <div class="block-heading">
+              <h2>Packet Sizes</h2>
+              <span>length histogram</span>
+            </div>
+            <canvas id="sizeChart" height="230"></canvas>
+          </section>
+        </div>
+      </section>
+
+      <section id="packetsPanel" class="tab-panel is-hidden">
+        <div class="packet-toolbar">
+          <div class="filter-box">
+            <label for="filterInput">Display filter</label>
+            <input id="filterInput" type="search" autocomplete="off" spellcheck="false" placeholder="tcp, dns, ip.addr==192.168.1.10, port==443, len>1000, contains:login">
+          </div>
+          <div class="quick-filters" aria-label="Quick filters">
+            <button type="button" data-filter="">All</button>
+            <button type="button" data-filter="tcp">TCP</button>
+            <button type="button" data-filter="udp">UDP</button>
+            <button type="button" data-filter="dns">DNS</button>
+            <button type="button" data-filter="http">HTTP</button>
+            <button type="button" data-filter="tls">TLS</button>
+            <button type="button" data-filter="arp">ARP</button>
+          </div>
+          <div id="filterStatus" class="filter-status">0 shown</div>
+        </div>
+
+        <div class="packet-split">
+          <section class="packet-list" aria-label="Packet list">
+            <table id="packetTable">
+              <thead>
+                <tr>
+                  <th data-sort="index">No.</th>
+                  <th data-sort="relTime">Time</th>
+                  <th data-sort="src">Source</th>
+                  <th data-sort="dst">Destination</th>
+                  <th data-sort="protocol">Protocol</th>
+                  <th data-sort="len">Length</th>
+                  <th data-sort="info">Info</th>
+                </tr>
+              </thead>
+              <tbody id="packetRows"></tbody>
+            </table>
+          </section>
+          <section class="packet-detail" aria-label="Packet details">
+            <div class="detail-tabs">
+              <button type="button" class="detail-tab is-active" data-detail="decoded">Decoded</button>
+              <button type="button" class="detail-tab" data-detail="payload">Payload</button>
+              <button type="button" class="detail-tab" data-detail="hex">Hex</button>
+            </div>
+            <div id="decodedDetail" class="detail-pane"></div>
+            <pre id="payloadDetail" class="detail-pane payload-pane is-hidden"></pre>
+            <pre id="hexDetail" class="detail-pane hex-pane is-hidden"></pre>
+          </section>
+        </div>
+      </section>
+
+      <section id="conversationsPanel" class="tab-panel is-hidden">
+        <div class="table-tools">
+          <h2>Conversations</h2>
+          <span id="conversationCount">0 conversations</span>
+        </div>
+        <div class="data-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Protocol</th>
+                <th>Endpoint A</th>
+                <th>Endpoint B</th>
+                <th>Packets</th>
+                <th>Bytes</th>
+                <th>First Seen</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody id="conversationRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="endpointsPanel" class="tab-panel is-hidden">
+        <div class="table-tools">
+          <h2>Endpoints</h2>
+          <span id="endpointCount">0 endpoints</span>
+        </div>
+        <div class="data-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Address</th>
+                <th>Packets</th>
+                <th>Bytes</th>
+                <th>Sent</th>
+                <th>Received</th>
+                <th>Ports</th>
+                <th>Protocols</th>
+              </tr>
+            </thead>
+            <tbody id="endpointRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="artifactsPanel" class="tab-panel is-hidden">
+        <div class="artifact-grid">
+          <section class="analysis-block">
+            <div class="block-heading">
+              <h2>DNS</h2>
+              <span id="dnsCount">0 records</span>
+            </div>
+            <div class="data-table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>No.</th>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>Name</th>
+                    <th>Answer</th>
+                  </tr>
+                </thead>
+                <tbody id="dnsRows"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="analysis-block">
+            <div class="block-heading">
+              <h2>HTTP</h2>
+              <span id="httpCount">0 messages</span>
+            </div>
+            <div class="data-table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>No.</th>
+                    <th>Time</th>
+                    <th>Source</th>
+                    <th>Host</th>
+                    <th>Request / Response</th>
+                  </tr>
+                </thead>
+                <tbody id="httpRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
